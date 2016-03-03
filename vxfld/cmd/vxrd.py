@@ -121,6 +121,22 @@ class _BridgeUtils(object):
         else:
             raise OSError('%s returned non-zero exit code' % cmd)
 
+    def batch_supported(self):
+        cmd = '%s help' % (self.__CMD_PATH)
+        output = ''
+        try:
+            output = subprocess.check_output(cmd.split(),
+                                             stdout=subprocess.PIPE,
+                                             shell=True)
+        # 'brdige help' always throws an exception
+        except Exception:
+            pass
+
+        if 'batch' in output:
+            return True
+
+        return False
+
     def set_hrep_macs(self):
         """ Updates the bridge fdb table by executing the bridge command with
         the temporary batch file as input.
@@ -128,13 +144,23 @@ class _BridgeUtils(object):
         :raises OSError: when the operation fails
         """
         status = True
+        batch = self.batch_supported()
+        if not batch:
+            self.__MAX_CMDS_PER_BATCH = 1
+
         for idx in range(0, len(self.__entries), self.__MAX_CMDS_PER_BATCH):
             with tempfile.NamedTemporaryFile('w', prefix='vxrd_tmp') as tmpf:
-                cmd = '%s -force -batch %s' % (self.__CMD_PATH, tmpf.name)
                 tmpf.writelines(
                     self.__entries[idx:idx + self.__MAX_CMDS_PER_BATCH]
                 )
                 tmpf.flush()
+                cmd = ''
+                if batch:
+                    cmd = '%s -force -batch %s' % (self.__CMD_PATH, tmpf.name)
+                else:
+                    tmpf.seek(0)
+                    for line in tmpf.readlines():
+                        cmd += '%s %s' % (self.__CMD_PATH, line)
                 try:
                     subprocess.check_output(cmd.split(),
                                             stderr=subprocess.STDOUT)
