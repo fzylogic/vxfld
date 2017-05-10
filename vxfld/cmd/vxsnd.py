@@ -100,14 +100,14 @@ class _Fdb(object):
         """
         return next((ele for ele in vni_set if entry == ele), None)
 
-    def ageout(self, track_duration=3600):
+    def ageout(self, stats_duration=3600):
         """ Ages out an IP address for an VNI. Removes the VNI from the
         FDB when all addresses have been aged out.
         """
         now = int(time.time())
         new_fdb = {}
         for aged in self.__aging_history.keys():
-            if aged < now - track_duration:
+            if aged < now - stats_duration:
                 del self.__aging_history[aged]
         for vni, vni_set in self.__data.iteritems():
             new_vni_set = {ele for ele in vni_set
@@ -125,11 +125,11 @@ class _Fdb(object):
                 new_fdb[vni] = new_vni_set
         self.__data = new_fdb
 
-    def aging_stats(self, track_duration=3600):
+    def aging_stats(self, stats_duration=3600):
         now = int(time.time())
         sum = 0
         for aging in self.__aging_history:
-            if now - aging > track_duration:
+            if now - aging > stats_duration:
                 continue
             else:
                 sum += self.__aging_history[aging]
