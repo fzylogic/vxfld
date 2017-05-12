@@ -84,6 +84,7 @@ class _Fdb(object):
         """:type : set[NodeConfig]"""
         self.__data = {}
         self.__logger = logger
+        self.__aging_history = {}
 
     def __iter__(self):
         return iter(self.__data)
@@ -99,12 +100,15 @@ class _Fdb(object):
         """
         return next((ele for ele in vni_set if entry == ele), None)
 
-    def ageout(self):
+    def ageout(self, stats_duration):
         """ Ages out an IP address for an VNI. Removes the VNI from the
         FDB when all addresses have been aged out.
         """
         now = int(time.time())
         new_fdb = {}
+        for aged in self.__aging_history.keys():
+            if aged < now - stats_duration:
+                del self.__aging_history[aged]
         for vni, vni_set in self.__data.iteritems():
             new_vni_set = {ele for ele in vni_set
                            if now <= ele.ageout or ele.ageout == self.NO_AGE}
@@ -113,9 +117,22 @@ class _Fdb(object):
                 self.__logger.debug('Aged out addresses for VNI: %s are '
                                     '%s', vni, ', '.join(ele.addr for ele in
                                                          difference))
+                try:
+                    self.__aging_history[now] += len(difference)
+                except KeyError:
+                    self.__aging_history[now] = len(difference)
             if new_vni_set:
                 new_fdb[vni] = new_vni_set
         self.__data = new_fdb
+
+    def aging_stats(self, stats_duration):
+        now = int(time.time())
+        sum = 0
+        for hist in self.__aging_history:
+            age = now - hist
+            if int(age) < int(stats_duration):
+                sum += self.__aging_history[hist]
+        return sum
 
     def get(self, vni, now=None):
         """ Returns information for all VTEPs in a VNI.
@@ -396,6 +413,12 @@ class _Vxsnd(service.Vxfld):
                         'ctrl_port': self._conf.vxfld_port
                     })
                 ret = (op_dict, None)
+            elif msg['aging'] and msg['stats']:
+                interval = self._conf.stats_duration
+                if msg.get('<interval>') is not None:
+                  interval = msg.get('<interval>')
+                aged = self.__fdb.aging_stats(stats_duration=interval)
+                ret = (aged, None)
             else:
                 ret = (None, RuntimeError('Unknown request'))
         except Exception as ex:  # pylint: disable=broad-except
@@ -474,7 +497,7 @@ class _Vxsnd(service.Vxfld):
         while True:
             now = int(time.time())
             if now >= next_ageout:
-                self.__fdb.ageout()
+                self.__fdb.ageout(self._conf.stats_duration)
                 next_ageout = now + self._conf.age_check
             eventlet.sleep(self._conf.age_check)
 
